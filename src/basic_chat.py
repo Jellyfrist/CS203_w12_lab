@@ -8,6 +8,7 @@ import streamlit as st
 import sys
 import os
 from pathlib import Path
+from datetime import datetime
 
 # Add project root to path
 project_root = Path(__file__).parent.parent
@@ -23,11 +24,10 @@ def init_session_state():
 
 
 def display_chat_messages():
-    """Display chat messages"""
+    """Display chat messages with timestamps"""
     for message in st.session_state.messages:
         with st.chat_message(message["role"]):
-            st.markdown(message["content"])
-
+            st.markdown(f"*{message['timestamp']}*  \n{message['content']}")
 
 def main():
     st.set_page_config(
@@ -89,7 +89,9 @@ def main():
         st.divider()
 
         # Clear chat button
- 
+        if st.button("Clear Chat History"):
+            st.session_state.messages = []
+            st.rerun()
 
         # Model info
         st.subheader("📊 Model Info")
@@ -126,12 +128,22 @@ def main():
 
     # Chat input
     if prompt := st.chat_input("Type your message here..."):
+        """
+        Add a timestamp for the user
+        """
+        # Get the current local date and time
+        now_user = datetime.now()
+        # Format the datetime object into a string
+        format_datetime_user = now_user.strftime("%Y-%m-%d %H:%M:%S")
+
         # Add user message to chat history
-        st.session_state.messages.append({"role": "user", "content": prompt})
+        st.session_state.messages.append(
+            {"role": "user", "content": prompt, "timestamp": format_datetime_user}
+        )
 
         # Display user message
         with st.chat_message("user"):
-            st.markdown(prompt)
+            st.markdown(f"*{format_datetime_user}*  \n{prompt}")
 
         # Generate and display assistant response
         with st.chat_message("assistant"):
@@ -142,14 +154,24 @@ def main():
 
                 # Get response from LLM
                 response = st.session_state.llm_client.chat(messages)
+                """
+                Add a timestamp for the assistant
+                """
+                # Get the current local date and time
+                nowAssistant = datetime.now()
+                # Format the datetime object into a string
+                format_datetime_assistant = nowAssistant.strftime("%Y-%m-%d %H:%M:%S")
+
+                # Get timestamp of response
+                respondTimeStamp = format_datetime_assistant
 
                 # Display response
-                st.markdown(response)
+                st.markdown(f"*{respondTimeStamp}* \n{response}")
 
                 # Add assistant response to chat history
                 st.session_state.messages.append(
-                    {"role": "assistant", "content": response})
-
+                    {"role": "assistant", "content": response, "timestamp": respondTimeStamp}
+                )
 
 if __name__ == "__main__":
     main()
