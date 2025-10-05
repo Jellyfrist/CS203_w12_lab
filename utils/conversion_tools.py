@@ -1,155 +1,39 @@
-from typing import Dict, Any, List
-from dataclasses import dataclass
-import json
-from litellm import completion
-from config import MODEL
+import os
+import requests
+from typing import Dict, Any
+from dotenv import load_dotenv
 
-# ===== Mock data =====
-RATE_TABLE: Dict[str, float] = {
-    "USD->THB": 35.0,
-    "THB->USD": 0.0286,
-    "THB->EUR": 0.025,
-    "EUR->THB": 40.0,
-    "USD->EUR": 0.92,
-    "EUR->USD": 1.087,
-}
-SUPPORTED = ["USD", "THB", "EUR", "JPY"]
-NAME_TO_ISO = {"baht": "THB", "dollar": "USD", "euro": "EUR", "yen": "JPY"}
+load_dotenv()
 
-@dataclass
-class ToolCall:
-    name: str
-    arguments: str
+API_KEY = os.getenv("EXCHANGE_RATE_API_KEY")
+BASE_URL = f"https://v6.exchangerate-api.com/v6/{self.api_key}/latest/"
 
-class CurrencyTools:
-    """Currency utilities exposed as tools."""
+def convert_currency(amount: float, from_currency: str, to_currency: str) -> Dict[str, Any]:
+    """
+    Convert an amount from one currency to another using the ExchangeRate API.
+    Returns a dictionary containing the rate and the converted value.
+    """
+    if not API_KEY:
+        return {"error": "API key missing."}
 
-    # --- Tool 1: list_supported (PROVIDED) ---
-    def list_supported(self) -> List[str]:
-        return SUPPORTED
+    url = f"{BASE_URL}{from_currency.upper()}"
+    response = requests.get(url)
+    data = response.json()
 
-    # --- Tool 2: resolve_currency (PROVIDED) ---
-    def resolve_currency(self, name_or_code: str) -> str:
-        code = (name_or_code or "").strip().upper()
-        if code in SUPPORTED:
-            return code
-        return NAME_TO_ISO.get((name_or_code or "").strip().lower(), "UNKNOWN")
+    if data.get("result") != "success":
+        return {"error": f"API error: {data.get('error-type', 'unknown error')}"}
 
-    # --- Tool 3: convert (YOU implement) ---
-    def convert(self, amount: float, base: str, quote: str) -> Dict[str, Any]:
-        """Use RATE_TABLE to compute result.
-        Return dict like: {"rate": , "converted": }.
-        If missing rate -> return {"error": f"No rate for {base}->{quote}"}
-        """
+    rates = data.get("conversion_rates", {})
+    if to_currency.upper() not in rates:
+        return {"error": f"No rate found for {to_currency}"}
 
-        # create the key for looking up the exchange rate in RATE_TABLE
-        rate_key = f"{base}->{quote}"
+    rate = rates[to_currency.upper()]
+    converted_amount = amount * rate
 
-        # use the exchange rate from the RATE_TABLE
-        rate = RATE_TABLE.get(rate_key)
-
-        # if no rate is found, return an error message
-        if rate is None:
-            error = {"error": f"No rate for {base}->{quote}"}
-            print(error)
-            return error
-
-        # if has rate, calculate the converted amount
-        converted = amount * rate
-
-        # keep the result in dictionary format
-        result = {
-            "amount": amount,
-            "base": base,
-            "quote": quote,
-            "rate": rate,
-            "converted": converted
-        }
-        return result
-
-    @classmethod
-    def get_schemas(cls) -> List[dict]:
-        """Return tool schemas (OpenAI-compatible). Fill the TODO for convert."""
-        return [
-            # 1) list_supported - schema COMPLETE
-            {
-                "name": "list_supported",
-                "description": "Return supported currency ISO codes",
-                "parameters": {"type": "object", "properties": {}},
-            },
-            # 2) resolve_currency - schema COMPLETE
-            {
-                "name": "resolve_currency",
-                "description": "Map currency name or code to ISO code (e.g., 'baht'->'THB')",
-                "parameters": {
-                    "type": "object",
-                    "properties": {"name_or_code": {"type": "string"}},
-                    "required": ["name_or_code"],
-                },
-            },
-            # 3) convert - STUDENT_TODO: COMPLETE THIS SCHEMA
-            {
-                "name": "convert",
-                "description": "Convert amount from base to quote using fixed RATE_TABLE",
-                "parameters": {
-                    "type": "object",
-                    "properties": {
-                        "amount": {"type": "number"},
-                        "base":   {"type": "string"},
-                        "quote":  {"type": "string"}
-                    },
-                    "required": ["amount", "base", "quote"]
-                }
-            }
-        ]
-
-class ToolExecutor:
-    def __init__(self):
-        self.tools = {}
-        self.tool_schemas: List[dict] = []
-
-    def register_tool(self, name: str, func, schema: dict):
-        self.tools[name] = func
-        self.tool_schemas.append(schema)
-
-    def register_tools(self, tool_obj):
-        for schema in tool_obj.get_schemas():
-            name = schema["name"]
-            if not hasattr(tool_obj, name):
-                continue
-            self.register_tool(name, getattr(tool_obj, name), schema)
-
-    def run(self, user_text: str, model: str = MODEL, max_turns: int = 6):
-        messages = [{"role": "user", "content": user_text}]
-        for turn in range(1, max_turns + 1):
-            resp = completion(model=model, messages=messages, functions=self.tool_schemas, function_call="auto")
-            msg = resp.choices[0].message
-            fc: ToolCall | None = getattr(msg, "function_call", None)
-            if not fc:
-                print("FINAL:", getattr(msg, "content", None) or msg.get("content"))
-                break
-            # INTERMEDIATE print
-            print(f"=== INTERMEDIATE (turn {turn}) ===")
-            print("name:", getattr(fc, "name", None))
-            print("arguments:", getattr(fc, "arguments", None))
-            # Execute tool
-            try:
-                args = json.loads(getattr(fc, "arguments", "{}") or "{}")
-                name = getattr(fc, "name", None)
-                result = self.tools[name](**args) if args else self.tools[name]()
-            except Exception as e:
-                result = {"error": str(e)}
-            # Return result
-            messages.append({"role": "assistant", "content": None, "function_call": {"name": getattr(fc, "name", None), "arguments": getattr(fc, "arguments", "{}")}})
-            messages.append({"role": "function", "name": getattr(fc, "name", None), "content": json.dumps(result)})
-
-if __name__ == "__main__":
-    tools = CurrencyTools()
-    ex = ToolExecutor()
-    ex.register_tools(tools)
-    # After you implement convert() + its schema, these should work nicely:
-    ex.run("Convert 100 USD to THB")
-    ex.run("Convert 250 baht to euros")
-    ex.run("Convert 55 dollars to EUR")
-    ex.run("Convert 10 JPY to dollars")
-    ex.run("Convert 50 ABC to THB") # error case
+    return {
+        "from_currency": from_currency.upper(),
+        "to_currency": to_currency.upper(),
+        "amount": amount,
+        "rate": rate,
+        "converted": converted_amount
+    }
