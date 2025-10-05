@@ -1,7 +1,7 @@
 import streamlit as st
 import random
 
-st.title("Echo Bot")
+st.title("Echo Bot 001")
 
 # Add a Clear Chat Button after the title
 if st.button("Clear Chat History"):
@@ -41,3 +41,4 @@ if prompt := st.chat_input("What is up?"):
         st.markdown(response)
     # Add assistant response to chat history
     st.session_state.messages.append({"role": "assistant", "content": response})
+    st.rerun()
