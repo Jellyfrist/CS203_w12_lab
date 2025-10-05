@@ -88,11 +88,6 @@ def main():
 
         st.divider()
 
-        # Clear chat button
-        if st.button("Clear Chat History"):
-            st.session_state.messages = []
-            st.rerun()
-
         # Model info
         st.subheader("📊 Model Info")
         if st.session_state.llm_client:
@@ -117,6 +112,11 @@ def main():
         - Implement chat history persistence
         - Add response streaming
         """)
+
+    # Clear chat button
+        if st.button("Clear Chat History"):
+            st.session_state.messages = []
+            st.rerun()
 
     # Main chat interface
     if not st.session_state.llm_client:
